@@ -1,0 +1,304 @@
+[
+  [
+    "raft",
+    "etcd",
+    "follower election",
+    "subordinate replicas",
+    "cluster coordinator"
+  ],
+  [
+    "multi-paxos",
+    "paxos",
+    "chubby",
+    "zookeeper"
+  ],
+  [
+    "epidemic gossip",
+    "gossip",
+    "phi accrual",
+    "accrual"
+  ],
+  [
+    "swim",
+    "consul"
+  ],
+  [
+    "two-phase commit",
+    "three-phase commit",
+    "2pc",
+    "3pc",
+    "presumed-abort",
+    "wait-for",
+    "prepare timeout"
+  ],
+  [
+    "saga",
+    "compensating",
+    "temporal",
+    "cadence"
+  ],
+  [
+    "consistent hashing",
+    "consistent hash",
+    "virtual ring",
+    "dynamo"
+  ],
+  [
+    "rendezvous hashing",
+    "highest random weight",
+    "squid",
+    "envoy"
+  ],
+  [
+    "vector clocks",
+    "version vectors",
+    "riak"
+  ],
+  [
+    "hybrid logical clocks",
+    "hlc",
+    "physical time drift"
+  ],
+  [
+    "stochastic gradient descent",
+    "sgd",
+    "saddle points",
+    "base learning rate",
+    "base scalar coefficient"
+  ],
+  [
+    "adamw",
+    "exponential moment",
+    "huggingface"
+  ],
+  [
+    "transformer encoders",
+    "transformer encoder",
+    "multi-head self-attention",
+    "sequential transformer blocks"
+  ],
+  [
+    "autoregressive transformer decoders",
+    "transformer decoder",
+    "rotary position",
+    "llama",
+    "gpt"
+  ],
+  [
+    "binary logistic regression",
+    "logistic regression",
+    "temperature scaling",
+    "expected calibration"
+  ],
+  [
+    "support vector machines",
+    "svm",
+    "soft-margin",
+    "platt scaling",
+    "hilbert"
+  ],
+  [
+    "multi-layer perceptrons",
+    "multi-layer perceptron",
+    "mlp",
+    "feedforward classifier",
+    "gelu",
+    "gradient clipping",
+    "hidden dense layers"
+  ],
+  [
+    "residual convolutional",
+    "resnet",
+    "convnext",
+    "skip connections",
+    "bottleneck blocks"
+  ],
+  [
+    "batch normalization",
+    "batchnorm",
+    "affine scale"
+  ],
+  [
+    "layer normalization",
+    "layernorm",
+    "pre-layer normalization"
+  ],
+  [
+    "postgresql",
+    "postgres",
+    "pgbouncer",
+    "vacuum",
+    "relational table storage",
+    "relational database daemon"
+  ],
+  [
+    "mysql",
+    "innodb",
+    "undo log",
+    "purge threads"
+  ],
+  [
+    "b+ tree",
+    "b+tree",
+    "page latching"
+  ],
+  [
+    "log-structured merge",
+    "lsm",
+    "rocksdb",
+    "bloom filters"
+  ],
+  [
+    "mongodb",
+    "wiredtiger",
+    "oplog",
+    "snappy"
+  ],
+  [
+    "apache cassandra",
+    "cql",
+    "token-based ring"
+  ],
+  [
+    "redis",
+    "rdb",
+    "aof",
+    "lru eviction"
+  ],
+  [
+    "memcached",
+    "slab allocator",
+    "slab allocation"
+  ],
+  [
+    "write-ahead logging",
+    "aries",
+    "group commit",
+    "fsync"
+  ],
+  [
+    "shadow paging",
+    "sqlite",
+    "rollback journal"
+  ],
+  [
+    "transmission control protocol",
+    "three-way handshake",
+    "bbr",
+    "rto",
+    "sliding window"
+  ],
+  [
+    "quic",
+    "zero-rtt connection resumption",
+    "migration resilience"
+  ],
+  [
+    "domain name system",
+    "recursive dns",
+    "dnssec",
+    "cache poisoning"
+  ],
+  [
+    "multicast dns",
+    "mdns",
+    "bonjour",
+    "avahi",
+    "dot-local"
+  ],
+  [
+    "http/2",
+    "hpack",
+    "binary framing"
+  ],
+  [
+    "http/3",
+    "qpack",
+    "alt-svc"
+  ],
+  [
+    "transport layer security",
+    "tls 1.3",
+    "single round trip"
+  ],
+  [
+    "tls 1.2",
+    "two-round-trip",
+    "padding oracle",
+    "session tickets"
+  ],
+  [
+    "border gateway protocol",
+    "bgp",
+    "as-path",
+    "inter-domain"
+  ],
+  [
+    "open shortest path first",
+    "ospf",
+    "dijkstra",
+    "link-state"
+  ],
+  [
+    "public key cryptography",
+    "rsa key lengths",
+    "asymmetric cryptographic public key certificates",
+    "perfect forward secrecy"
+  ],
+  [
+    "elliptic curve cryptography",
+    "ecdsa",
+    "ed25519",
+    "secp256r1"
+  ],
+  [
+    "secure credential storage",
+    "argon2",
+    "asic",
+    "memory-hard"
+  ],
+  [
+    "pbkdf2",
+    "pseudorandom functions"
+  ],
+  [
+    "web application firewalls",
+    "waf",
+    "sql injection",
+    "content security policy",
+    "csrf"
+  ],
+  [
+    "api gateways",
+    "api gateway",
+    "token bucket",
+    "token leak",
+    "kong",
+    "429"
+  ],
+  [
+    "advanced encryption standard",
+    "aes",
+    "gcm mode",
+    "key rotation"
+  ],
+  [
+    "chacha20-poly1305",
+    "chacha20",
+    "poly1305",
+    "wireguard"
+  ],
+  [
+    "oauth 2.0",
+    "oauth pkce",
+    "pkce",
+    "proof key for code exchange",
+    "code verifier"
+  ],
+  [
+    "json web tokens",
+    "jwt",
+    "base64url",
+    "clock skew"
+  ]
+]
