@@ -23,12 +23,9 @@ python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-Set the email used to sign in to the TDS course page:
-
-```bash
-export STUDENT_EMAIL='your-student-email@ds.study.iitm.ac.in'  # Linux/macOS
-# PowerShell: $env:STUDENT_EMAIL='your-student-email@ds.study.iitm.ac.in'
-```
+For a local one-student test, optionally set `STUDENT_EMAIL`. For testing
+multiple students, leave it unset and use the student-specific URL path shown
+below.
 
 Start the service:
 
@@ -64,45 +61,101 @@ owned-isolated security tests, etc.). The supplied JSON contains cases and the
 policy but no official expected labels, so this is a regression/invariant test,
 not a claim of 96/96 official accuracy.
 
-## 4. Deploy to Vercel
+## 4. Deploy one shared service for multiple students on Vercel
 
-This version is intentionally light: the Q1 retrieval is deterministic and
-uses no PyTorch, sentence-transformers, NumPy, or external embedding API. That
-keeps it suitable for Vercel's Python Functions bundle and short request time.
+This version supports a shared deployment. Students do **not** need their own
+Vercel projects. Q1 must know which student's email seeded the 50 passages.
+The visible course-page code uses `d.email` to generate the passages, but the
+visible browser code sends that email to the course site's `/backendVerify`
+endpoint; it does not put the email in the documented Q1 JSON body. The
+server therefore supports several identity channels:
 
-1. Create a GitHub repository and upload the contents of this folder to its
-   root (not the parent directory).
-2. In Vercel, choose **Add New → Project**, import that GitHub repository, and
-   keep the detected Python/FastAPI settings. The root should contain
-   `main.py`, `requirements.txt`, and `vercel.json`.
-3. Before deploying, open **Project → Settings → Environment Variables**.
-   Add `STUDENT_EMAIL` with the exact email used on the TDS course page, for
-   the **Production** environment. Do not put it in source code or commit a
-   real `.env` file.
-4. Deploy. After deployment, test:
+1. `X-Student-Email` (and common equivalent headers) if the course verifier
+   forwards student identity to the submitted endpoint.
+2. A per-student base URL path, which works even when the verifier does not
+   forward a header, provided it appends `/query` to the submitted base URL.
+3. JSON/query email for manual testing.
+4. `STUDENT_EMAIL` as a single-student fallback.
 
-   - `https://YOUR-PROJECT.vercel.app/`
-   - `https://YOUR-PROJECT.vercel.app/healthz`
-   - `POST https://YOUR-PROJECT.vercel.app/query`
-   - `POST https://YOUR-PROJECT.vercel.app/classify`
+### One-time owner deployment
 
-5. For Q1, submit the **base URL only** in the assignment field, without
-   `/query`: `https://YOUR-PROJECT.vercel.app`. The page adds `/query` itself.
-6. For Q4, submit the exact route: `https://YOUR-PROJECT.vercel.app/classify`.
-7. Keep the deployment available through both Check and Save. When you change
-   an environment variable, redeploy so the new deployment receives it.
+1. Put the contents of this folder at the root of a GitHub repository.
+2. Import that repository into Vercel (**Add New → Project**).
+3. Do **not** set `STUDENT_EMAIL` for the shared deployment. That prevents a
+   missing identity from silently falling back to the owner's KB.
+4. Deploy once. The service URL will look like
+   `https://YOUR-PROJECT.vercel.app`.
+5. Test `GET https://YOUR-PROJECT.vercel.app/healthz`. It should report
+   `q1_ready: true` because request-level identity is supported.
 
-Vercel detects FastAPI from the root `main.py` app object. The supplied
-`vercel.json` explicitly bundles `data/**` (the two JSON files required to
-recreate the personalized knowledge base) and excludes the local test corpus.
-No `/api` prefix or rewrite is required for this FastAPI entrypoint.
+### Share this link with all students
+
+Once deployed, share this single link with everyone:
+
+```text
+https://YOUR-PROJECT.vercel.app/student-link
+```
+
+Each student opens it, enters the exact email used on the TDS course page, and
+clicks **Generate my URLs**. The page constructs the personal Q1 base URL in
+their browser; it does not store the email. It also shows the common Q4 URL.
+
+### What each student enters for Q1
+
+Each student uses the same host, but appends their own URL-encoded email as a
+path segment after `/u/`. For example, if the deployment is
+`https://YOUR-PROJECT.vercel.app` and the student's course email is
+`23f3002028@ds.study.iitm.ac.in`, that student enters this as the **Public
+Base URL** (without `/query`):
+
+```text
+https://YOUR-PROJECT.vercel.app/u/23f3002028%40ds.study.iitm.ac.in
+```
+
+The grader should then call:
+
+```text
+POST https://YOUR-PROJECT.vercel.app/u/23f3002028%40ds.study.iitm.ac.in/query
+```
+
+The FastAPI route extracts the email from the path and generates the exact
+50-passage KB for that student. Another student enters the same deployment
+URL with their own email segment. No redeployment or code edit is needed. A
+second alias is available at `/student/{email}/query`.
+
+**Important verification caveat:** the supplied files include the browser code
+that submits `response` and `email` to the course's `/backendVerify` endpoint,
+but not the implementation of that backend endpoint. The browser code alone
+therefore cannot prove whether it appends `/query` while preserving a path
+prefix or forwards an identity header. The path-based URL is designed for the
+normal base-URL-plus-`/query` behavior implied by the form. Before circulating
+the link widely, do one Q1 Check with a second test account and inspect your
+Vercel function logs: the request path should contain `/u/<that-email>/query`
+or the request should include `X-Student-Email`. If the grader forces the path
+to the origin-root `/query` and sends no identity header/body/query field, a
+shared deployment cannot distinguish students; the grader would need to pass
+identity in a header/body or allow a per-student URL path/subdomain.
+
+### Q4 URL
+
+Q4 already sends the selected student's personalized `cases` in every POST
+body, so all students can use the same exact URL:
+
+```text
+https://YOUR-PROJECT.vercel.app/classify
+```
+
+No email setting or per-student Q4 URL is needed.
+
+Vercel detects FastAPI from `main.py`. The supplied `vercel.json` bundles
+`data/**`, the two JSON files needed to regenerate the personalized passages.
 
 ## 5. Verify the actual deployment
 
 After Vercel finishes deploying, run this from the project folder:
 
 ```bash
-python tests/smoke_remote.py https://YOUR-PROJECT.vercel.app
+python tests/smoke_remote.py https://YOUR-PROJECT.vercel.app your-course-email@ds.study.iitm.ac.in
 ```
 
 It calls all 20 captured Q1 probes and sends the 96 supplied Q4 cases as four
@@ -130,7 +183,9 @@ curl -sS http://127.0.0.1:8000/classify \\
 
 ## 7. Optional Vercel CLI deployment
 
-You can deploy without the dashboard too. From this project's root:
+You can deploy without the dashboard too. For the recommended shared deployment,
+do not add `STUDENT_EMAIL`. Only add it when deliberately configuring a
+single-student instance. From this project's root:
 
 ```bash
 npm install --global vercel
@@ -138,24 +193,22 @@ vercel login
 vercel
 ```
 
-Follow the prompts to create/link the project. Add the production variable and
-deploy:
+Follow the prompts to create/link the project, then deploy:
 
 ```bash
-vercel env add STUDENT_EMAIL production
 vercel --prod
 ```
 
-When prompted for the value, enter your course-login email. For environment
-variable changes later, run `vercel env rm STUDENT_EMAIL production`, add it
-again, and redeploy with `vercel --prod`.
+For a single-student instance only, add `STUDENT_EMAIL` with `vercel env add
+STUDENT_EMAIL production` and redeploy. Do not set it on the shared instance.
 
 ## Important personalization note
 
-The Q1 endpoint contract shown in the assignment sends `question` and `top_k`,
-not the student's email. Therefore a shared deployment cannot infer which
-student's personalized KB to use from the official request alone. Set
-`STUDENT_EMAIL` to your own course-login email for your submission. For manual
-multi-user testing, `/query` also accepts an optional `email` field, but the
-course grader is not required to send it.
-# GA_5_Sever
+The visible Q1 browser code generates the personalized knowledge base from the
+signed-in email, then posts the entered base URL plus that email to the course
+site's `/backendVerify` endpoint. It does not show the hidden verifier's
+server-to-server request implementation. The API contract displayed on the
+page contains only `question` and `top_k`, so a shared endpoint needs another
+identity channel. This project accepts a forwarded identity header and a
+student-specific `/u/{email}/query` path. For a single student's own
+deployment, `STUDENT_EMAIL` remains available as a fallback.

@@ -1,6 +1,6 @@
 """End-to-end smoke test for a deployed GA5 server.
 
-Usage: python tests/smoke_remote.py https://your-project.vercel.app
+Usage: python tests/smoke_remote.py https://your-project.vercel.app student@ds.study.iitm.ac.in
 
 This checks all 20 captured Q1 probes and the 96 supplied Q4 cases in four
 24-case batches, with no more than two Q4 requests in flight.
@@ -12,10 +12,12 @@ import json
 import sys
 import urllib.error
 import urllib.request
+from urllib.parse import quote
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE = (sys.argv[1] if len(sys.argv) > 1 else "").rstrip("/")
+STUDENT_EMAIL = sys.argv[2].strip().lower() if len(sys.argv) > 2 else ""
 LOCAL_HTTP = BASE.startswith("http://127.0.0.1") or BASE.startswith("http://localhost")
 if not BASE.startswith("https://") and not LOCAL_HTTP:
     raise SystemExit("Pass an HTTPS deployment URL (or http://127.0.0.1 for local testing).")
@@ -42,8 +44,9 @@ def post_json(url: str, payload: dict, timeout: int = 55) -> tuple[dict, str]:
         raise RuntimeError(f"{url}: HTTP {exc.code}: {detail}") from exc
 
 
-# Q1: the grader contract sends question/top_k only; the service reads the
-# student email from the deployment's STUDENT_EMAIL setting.
+# Q1: for a shared deployment, use the student-specific path. If no email is
+# passed, this tests root /query and therefore requires a forwarded header or
+# a single-student STUDENT_EMAIL fallback.
 probes = json.loads((ROOT / "tests/q1_probes.json").read_text(encoding="utf-8"))
 q1_expected = {
     0: [0, 1, 3], 1: [10, 11, 19], 2: [20, 21, 25], 3: [40, 41, 37],
@@ -52,8 +55,9 @@ q1_expected = {
     12: [0, 1, 3], 13: [0, 1, 3], 14: [12, 10, 19], 15: None,
     16: [4, 5, 2], 17: [48, 40, 49], 18: [16, 17, 18], 19: [21, 20, 25],
 }
+q1_url = (BASE + "/u/" + quote(STUDENT_EMAIL, safe="") + "/query") if STUDENT_EMAIL else (BASE + "/query")
 for index, question in enumerate(probes):
-    result, _ = post_json(BASE + "/query", {"question": question, "top_k": 3})
+    result, _ = post_json(q1_url, {"question": question, "top_k": 3})
     expected = q1_expected[index]
     assert set(("answer", "sources", "scores", "confidence")) <= result.keys(), (index, result)
     assert result["sources"] == (expected or []), (index, expected, result)
