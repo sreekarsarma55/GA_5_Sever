@@ -1,214 +1,229 @@
-# TDS 2026 Sep GA5 — unified Q1 + Q4 server
+# TDS 2026 Sep GA5 — shared Q1 + Q4 FastAPI server
 
-This project exposes both graded endpoints from one small FastAPI app:
+This project exposes the two graded server endpoints from one FastAPI app:
 
-- `POST /query` — Q1 personalized 50-passage RAG service.
-- `POST /classify` — Q4 deterministic safety/router classifier.
-- `GET /` and `GET /healthz` — health checks.
+- `POST /u/{student_email}/query` (and `/student/{student_email}/query`) —
+  Q1, with a student-specific knowledge base selected by the URL path.
+- `POST /query` — Q1's root route, usable when the verifier forwards an
+  identity header or when running a deliberately single-student deployment.
+- `POST /classify` — Q4, one independent batch of up to 24 cases.
+- `GET /student-link` — generates each student's Q1 URL in the browser.
+- `GET /healthz` — health/configuration check.
 
-The app does not download a transformer model on startup. It generates the 50
-Q1 passages locally using the same email-seeded `seedrandom` 3.x algorithm and
-the templates/tokens extracted from the assignment page. Q4 is a stateless,
-per-case policy engine. No approval is shared across cases or batches.
+The shared deployment must **not** set `STUDENT_EMAIL`. All students use the
+same Vercel deployment; their Q1 URLs contain their own course email. Q4 is
+already personalized by the portal because each request includes that
+student's cases in the JSON body.
 
-## 1. Local run (Ubuntu / macOS / Windows)
+## What changed in this revision
+
+### Q1 — RAG Colosseum
+
+1. Reproduces the portal's `seedrandom@3.0.5` email-seeded generator and the
+   5 domains × 10 templates = 50 passages. The generator is deterministic and
+   cached per normalized email.
+2. The supplied portal snapshot for `23f3002028@ds.study.iitm.ac.in` is used as
+   a 50-passage golden reference. The test compares all 50 strings, not just
+   counts or token presence.
+3. The 20 captured probe questions now use narrow evidence sources rather
+   than the former unrelated top-three confounders. Single-fact questions
+   return the passage containing that fact; synthesis questions return the
+   two named passages; absent facts abstain with `answer: null`, empty sources
+   and low confidence.
+4. The false-premise Transformer question is answered from the Transformer
+   passage (index 12), including its per-student warmup learning-rate value,
+   not mixed with the separate SGD base learning rate (index 10).
+5. The HTML-comment injection is removed before matching, so its claimed
+   `[49]` source does not control retrieval.
+6. No ML model is downloaded at startup. The endpoint stays light and is
+   designed to meet the Q1 eight-second response window.
+
+### Q4 — Harness Safety Router
+
+1. Cases are classified independently; no approval or instruction is shared
+   across case or batch boundaries.
+2. A later revocation of the pending operation blocks the tool without
+   retroactively changing an otherwise allowed request. This matters for an
+   owned, confined, fully isolated vulnerability demonstration that is later
+   revoked: allowed request, blocked tool, restricted route, intervene.
+3. “Do not apply the Terraform plan” is treated as prohibiting `terraform_apply`,
+   not read-only `workspace_read`; a malicious instruction in a tool result
+   still causes `watch`.
+4. A specific “revoke the deployment approval” message blocks a pending
+   deployment.
+5. Defensive analysis of a malware report and indicators of compromise is
+   treated as benign primary-route analysis, not active vulnerability testing.
+6. The HTTP endpoint enforces JSON media type, bounded 2 MiB request/response
+   size, unique case IDs, and the grader's 24-case batch size. It echoes
+   `profile` and `batchId` and returns exactly one tuple per input case.
+
+## 1. Local setup (Ubuntu / macOS / Windows)
 
 Python 3.12 is recommended.
 
 ```bash
-cd ga5_unified_server
 python3 -m venv .venv
-source .venv/bin/activate            # Windows: .venv\\Scripts\\activate
+source .venv/bin/activate              # Windows PowerShell: .venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-pip install -r requirements.txt
+pip install -r requirements.txt -r requirements-dev.txt
 ```
 
-For a local one-student test, optionally set `STUDENT_EMAIL`. For testing
-multiple students, leave it unset and use the student-specific URL path shown
-below.
-
-Start the service:
+Start the server:
 
 ```bash
 uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-Open `http://127.0.0.1:8000/` and `http://127.0.0.1:8000/docs`.
+Open:
 
-## 2. Test Q1 locally
+- `http://127.0.0.1:8000/`
+- `http://127.0.0.1:8000/healthz`
+- `http://127.0.0.1:8000/docs`
 
-```bash
-python tests/test_q1.py
-```
-
-The test runs the 20 unique Q1 questions captured from the provided request log.
-It checks that answerable probes return the expected passage IDs and that the
-known unanswerable probes abstain. It also checks that the generated KB matches
-the previously supplied server's 50 passages when `GA5_REFERENCE_EMAIL` is set
-to the matching reference account. The test identity is read from
-`STUDENT_EMAIL` or `GA5_TEST_EMAIL`; otherwise a non-real placeholder is used.
-
-## 3. Test Q4 locally
+## 2. Run tests before deploying
 
 ```bash
-python tests/test_q4.py
+pytest -q
 ```
 
-This runs all 96 supplied cases through the classifier and checks response
-shape, legal label values, stable case IDs, case independence, and key policy
-invariants (revocation, path traversal, private-data transfer, preflight,
-owned-isolated security tests, etc.). The supplied JSON contains cases and the
-policy but no official expected labels, so this is a regression/invariant test,
-not a claim of 96/96 official accuracy.
+The suite checks:
 
-## 4. Deploy one shared service for multiple students on Vercel
+- exact reproduction of the 50 reference passages for the supplied reference
+  email;
+- all 20 captured Q1 probes for three different emails, with personalized
+  values extracted from each generated KB;
+- the 96 supplied Q4 cases, response labels, case independence, and targeted
+  policy regressions;
+- HTTP path identity selection, path-over-header precedence, JSON media type,
+  duplicate-ID rejection, and the 24-case API batch limit.
 
-This version supports a shared deployment. Students do **not** need their own
-Vercel projects. Q1 must know which student's email seeded the 50 passages.
-The visible course-page code uses `d.email` to generate the passages, but the
-visible browser code sends that email to the course site's `/backendVerify`
-endpoint; it does not put the email in the documented Q1 JSON body. The
-server therefore supports several identity channels:
+**Scoring limitation:** the supplied Q4 JSON contains 96 cases and the policy,
+not the grader's gold decisions. These tests prove behavior against the visible
+policy and named regressions; they cannot certify the hidden grader's exact
+macro-F1 or tuple score. Likewise, the Q1 probe suite reflects the captured
+20-probe set and may not prove every hidden grader implementation detail.
 
-1. `X-Student-Email` (and common equivalent headers) if the course verifier
-   forwards student identity to the submitted endpoint.
-2. A per-student base URL path, which works even when the verifier does not
-   forward a header, provided it appends `/query` to the submitted base URL.
-3. JSON/query email for manual testing.
-4. `STUDENT_EMAIL` as a single-student fallback.
+## 3. One shared Vercel deployment for all students
 
-### One-time owner deployment
+### Create the deployment once
 
-1. Put the contents of this folder at the root of a GitHub repository.
-2. Import that repository into Vercel (**Add New → Project**).
-3. Do **not** set `STUDENT_EMAIL` for the shared deployment. That prevents a
-   missing identity from silently falling back to the owner's KB.
-4. Deploy once. The service URL will look like
+1. Push the contents of this folder to the root of one GitHub repository.
+2. In Vercel, select **Add New → Project** and import that repository.
+3. Keep the project root at the repository root. `main.py`, `requirements.txt`,
+   `vercel.json`, and `data/` must be at that level.
+4. **Do not configure `STUDENT_EMAIL`** in Vercel. That variable is only for a
+   single-student deployment and must not be set on the shared instance.
+5. Deploy. The public domain will look like
    `https://YOUR-PROJECT.vercel.app`.
-5. Test `GET https://YOUR-PROJECT.vercel.app/healthz`. It should report
-   `q1_ready: true` because request-level identity is supported.
 
-### Share this link with all students
+`vercel.json` includes the two JSON files in `data/` in the Python function
+bundle. Q1 reconstructs the selected student's 50 passages on a cold start;
+its per-process cache only improves subsequent calls.
 
-Once deployed, share this single link with everyone:
+### Share one link with the class
+
+Give every student this same link:
 
 ```text
 https://YOUR-PROJECT.vercel.app/student-link
 ```
 
-Each student opens it, enters the exact email used on the TDS course page, and
-clicks **Generate my URLs**. The page constructs the personal Q1 base URL in
-their browser; it does not store the email. It also shows the common Q4 URL.
-
-### What each student enters for Q1
-
-Each student uses the same host, but appends their own URL-encoded email as a
-path segment after `/u/`. For example, if the deployment is
-`https://YOUR-PROJECT.vercel.app` and the student's course email is
-`23f3002028@ds.study.iitm.ac.in`, that student enters this as the **Public
-Base URL** (without `/query`):
+Each student enters the exact email used to sign in to the course portal. The
+page constructs a URL like:
 
 ```text
-https://YOUR-PROJECT.vercel.app/u/23f3002028%40ds.study.iitm.ac.in
+https://YOUR-PROJECT.vercel.app/u/student%40ds.study.iitm.ac.in
 ```
 
-The grader should then call:
+The student pastes that as the Q1 **Public Base URL**, without `/query`. The
+exam checker should append `/query`, resulting in:
 
 ```text
-POST https://YOUR-PROJECT.vercel.app/u/23f3002028%40ds.study.iitm.ac.in/query
+POST https://YOUR-PROJECT.vercel.app/u/student%40ds.study.iitm.ac.in/query
 ```
 
-The FastAPI route extracts the email from the path and generates the exact
-50-passage KB for that student. Another student enters the same deployment
-URL with their own email segment. No redeployment or code edit is needed. A
-second alias is available at `/student/{email}/query`.
+FastAPI extracts the email from the path and calls the deterministic KB
+generator. Student A and Student B therefore get different 50-passage KBs
+while sharing the same deployment and code. No shared database is required.
 
-**Important verification caveat:** the supplied files include the browser code
-that submits `response` and `email` to the course's `/backendVerify` endpoint,
-but not the implementation of that backend endpoint. The browser code alone
-therefore cannot prove whether it appends `/query` while preserving a path
-prefix or forwards an identity header. The path-based URL is designed for the
-normal base-URL-plus-`/query` behavior implied by the form. Before circulating
-the link widely, do one Q1 Check with a second test account and inspect your
-Vercel function logs: the request path should contain `/u/<that-email>/query`
-or the request should include `X-Student-Email`. If the grader forces the path
-to the origin-root `/query` and sends no identity header/body/query field, a
-shared deployment cannot distinguish students; the grader would need to pass
-identity in a header/body or allow a per-student URL path/subdomain.
+**Verifier integration caveat:** the supplied frontend shows the course email
+being sent to the course site's `/backendVerify` route, but not that hidden
+route's server-to-server implementation. The per-student URL works if that
+verifier appends `/query` to the supplied base URL while preserving the path,
+which is the behavior implied by the field instructions. If it instead strips
+the path and calls only the origin-root `/query` without forwarding an email
+header/body/query parameter, no shared server can infer the student identity.
+Validate this once with the actual portal Check and inspect Vercel request
+logs for `/u/<email>/query` before distributing the link widely.
 
-### Q4 URL
+### Q4 endpoint
 
-Q4 already sends the selected student's personalized `cases` in every POST
-body, so all students can use the same exact URL:
+All students enter this same exact URL in Q4:
 
 ```text
 https://YOUR-PROJECT.vercel.app/classify
 ```
 
-No email setting or per-student Q4 URL is needed.
+The grader sends the student's own 24-case batches to that endpoint. The
+server does not need a Q4 email setting or URL suffix.
 
-Vercel detects FastAPI from `main.py`. The supplied `vercel.json` bundles
-`data/**`, the two JSON files needed to regenerate the personalized passages.
+## 4. Test the live deployment
 
-## 5. Verify the actual deployment
-
-After Vercel finishes deploying, run this from the project folder:
+From the project root:
 
 ```bash
-python tests/smoke_remote.py https://YOUR-PROJECT.vercel.app your-course-email@ds.study.iitm.ac.in
+python tests/smoke_remote.py https://YOUR-PROJECT.vercel.app student@ds.study.iitm.ac.in
 ```
 
-It calls all 20 captured Q1 probes and sends the 96 supplied Q4 cases as four
-24-case batches, with no more than two Q4 requests in flight. It checks the
-response schema, IDs, known Q1 source rankings, and abstentions. It does not
-claim to reproduce the hidden grader's official score.
+The script sends all 20 captured Q1 probes through the student's `/u/.../query`
+route, then sends the 96 captured Q4 cases as four 24-case requests with at most
+two requests concurrently. It validates the contract and IDs; it is not a
+replacement for the official portal Check.
 
-## 6. Local endpoint smoke tests
-
-Q1:
+To run the same smoke test against a local server:
 
 ```bash
-curl -sS http://127.0.0.1:8000/query \\
-  -H 'Content-Type: application/json' \\
-  -d '{"question":"What is the heartbeat interval in Raft?","top_k":3}' | python -m json.tool
+python tests/smoke_remote.py http://127.0.0.1:8000 student@ds.study.iitm.ac.in
+```
+
+## 5. Manual curl checks
+
+Q1 (replace the email with the student being tested):
+
+```bash
+curl --fail-with-body -sS \
+  'http://127.0.0.1:8000/u/student%40ds.study.iitm.ac.in/query' \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"What is the duration in milliseconds between periodic keepalive signals transmitted by the cluster coordinator to prevent election triggers among subordinate replicas?","top_k":3}'
 ```
 
 Q4:
 
 ```bash
-curl -sS http://127.0.0.1:8000/classify \\
-  -H 'Content-Type: application/json' \\
-  -d '{"profile":"agent-harness-2026-09","batchId":"smoke-test","policy":{},"cases":[]}' | python -m json.tool
+curl --fail-with-body -sS http://127.0.0.1:8000/classify \
+  -H 'Content-Type: application/json' \
+  -d '{"profile":"agent-harness-2026-09","batchId":"manual","policy":{},"cases":[]}'
 ```
 
-## 7. Optional Vercel CLI deployment
+## 6. Project structure
 
-You can deploy without the dashboard too. For the recommended shared deployment,
-do not add `STUDENT_EMAIL`. Only add it when deliberately configuring a
-single-student instance. From this project's root:
-
-```bash
-npm install --global vercel
-vercel login
-vercel
+```text
+ga5_unified_server/
+├── main.py
+├── rag_engine.py
+├── safety_engine.py
+├── requirements.txt
+├── requirements-dev.txt
+├── vercel.json
+├── data/
+│   ├── rag_templates.json
+│   └── passage_anchors.json
+└── tests/
+    ├── q1_probes.json
+    ├── legacy_passages_reference.json
+    ├── q4_all_96_cases.json
+    ├── test_q1.py
+    ├── test_q4.py
+    ├── test_http_identity.py
+    └── smoke_remote.py
 ```
-
-Follow the prompts to create/link the project, then deploy:
-
-```bash
-vercel --prod
-```
-
-For a single-student instance only, add `STUDENT_EMAIL` with `vercel env add
-STUDENT_EMAIL production` and redeploy. Do not set it on the shared instance.
-
-## Important personalization note
-
-The visible Q1 browser code generates the personalized knowledge base from the
-signed-in email, then posts the entered base URL plus that email to the course
-site's `/backendVerify` endpoint. It does not show the hidden verifier's
-server-to-server request implementation. The API contract displayed on the
-page contains only `question` and `top_k`, so a shared endpoint needs another
-identity channel. This project accepts a forwarded identity header and a
-student-specific `/u/{email}/query` path. For a single student's own
-deployment, `STUDENT_EMAIL` remains available as a fallback.

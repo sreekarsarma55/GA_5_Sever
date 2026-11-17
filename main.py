@@ -13,6 +13,7 @@ The course page appends /query to that base URL.
 """
 from __future__ import annotations
 
+import json
 import os
 from typing import Any
 
@@ -25,7 +26,7 @@ from safety_engine import evaluate_case
 
 app = FastAPI(
     title="TDS GA5 Unified Server",
-    version="1.1.0",
+    version="1.2.0",
     description=(
         "Shared personalized RAG endpoint for Q1 and deterministic "
         "safety router for Q4."
@@ -158,7 +159,9 @@ def _identity_from_request(
 
     # Request-specific identity must always take precedence over the
     # deployment-level fallback, which is intended only for a single user.
-    candidates = (header_email, path_email, body.get("email"), query_email, env_email)
+    # The explicit student path is the strongest request-scoped selector. A
+    # deployment-level fallback must never override a student's URL.
+    candidates = (path_email, header_email, body.get("email"), query_email, env_email)
     for candidate in candidates:
         normalized = normalize_email(str(candidate or ""))
         if normalized:
@@ -166,11 +169,43 @@ def _identity_from_request(
     return ""
 
 
-async def _handle_query(request: Request, path_email: str | None = None) -> JSONResponse:
+MAX_REQUEST_BYTES = 2 * 1024 * 1024
+MAX_CASES_PER_BATCH = 24
+
+
+async def _read_json_body(request: Request, *, max_bytes: int = MAX_REQUEST_BYTES) -> Any:
+    """Read a bounded JSON request and enforce the grader's media-type rule."""
+    media_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    if media_type != "application/json" and not media_type.endswith("+json"):
+        raise HTTPException(
+            status_code=415,
+            detail="Content-Type must be application/json.",
+        )
+
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > max_bytes:
+                raise HTTPException(status_code=413, detail="Request body exceeds 2 MiB.")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid Content-Length header.")
+
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > max_bytes:
+            raise HTTPException(status_code=413, detail="Request body exceeds 2 MiB.")
+        chunks.append(chunk)
+
     try:
-        body = await request.json()
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail="Request body must be valid JSON.") from exc
+        return json.loads(b"".join(chunks).decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="Request body must be valid UTF-8 JSON.") from exc
+
+
+async def _handle_query(request: Request, path_email: str | None = None) -> JSONResponse:
+    body = await _read_json_body(request)
     if not isinstance(body, dict):
         raise HTTPException(status_code=400, detail="JSON body must be an object.")
 
@@ -191,7 +226,7 @@ async def _handle_query(request: Request, path_email: str | None = None) -> JSON
         result = answer_question(question, email, top_k)
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return JSONResponse(content=result)
+    return JSONResponse(content=result, headers={"Cache-Control": "no-store"})
 
 
 @app.post("/query")
@@ -207,24 +242,40 @@ async def student_query_endpoint(student_email: str, request: Request) -> JSONRe
 
 @app.post("/classify")
 async def classify_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail="Request body must be valid JSON.") from exc
+    """Classify one independent grader batch (maximum 24 cases)."""
+    body = await _read_json_body(request)
     if not isinstance(body, dict):
         raise HTTPException(status_code=400, detail="JSON body must be an object.")
 
-    cases = body.get("cases") or []
+    cases = body.get("cases")
     if not isinstance(cases, list):
         raise HTTPException(status_code=400, detail="'cases' must be a JSON array.")
-    if len(cases) > 100:
-        raise HTTPException(status_code=413, detail="Too many cases in one request.")
+    if len(cases) > MAX_CASES_PER_BATCH:
+        raise HTTPException(
+            status_code=413,
+            detail=f"A grader batch may contain at most {MAX_CASES_PER_BATCH} cases.",
+        )
 
-    results = [evaluate_case(case if isinstance(case, dict) else {}) for case in cases]
-    return JSONResponse(
-        content={
-            "profile": body.get("profile", "agent-harness-2026-09"),
-            "batchId": body.get("batchId", ""),
-            "results": results,
-        }
-    )
+    case_ids: list[str] = []
+    for index, case in enumerate(cases):
+        if not isinstance(case, dict):
+            raise HTTPException(status_code=400, detail=f"cases[{index}] must be an object.")
+        case_id = str(case.get("caseId") or "").strip()
+        if not case_id:
+            raise HTTPException(status_code=400, detail=f"cases[{index}] is missing caseId.")
+        case_ids.append(case_id)
+    if len(case_ids) != len(set(case_ids)):
+        raise HTTPException(status_code=400, detail="Duplicate caseId values in batch.")
+
+    # No state, approvals or instructions are shared between cases or batches.
+    results = [evaluate_case(case) for case in cases]
+    payload = {
+        "profile": body.get("profile", "agent-harness-2026-09"),
+        "batchId": body.get("batchId", ""),
+        "results": results,
+    }
+    response = JSONResponse(content=payload, headers={"Cache-Control": "no-store"})
+    if len(response.body) > MAX_REQUEST_BYTES:
+        raise HTTPException(status_code=413, detail="Response would exceed 2 MiB.")
+    return response
+

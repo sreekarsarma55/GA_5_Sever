@@ -49,19 +49,23 @@ def post_json(url: str, payload: dict, timeout: int = 55) -> tuple[dict, str]:
 # a single-student STUDENT_EMAIL fallback.
 probes = json.loads((ROOT / "tests/q1_probes.json").read_text(encoding="utf-8"))
 q1_expected = {
-    0: [0, 1, 3], 1: [10, 11, 19], 2: [20, 21, 25], 3: [40, 41, 37],
-    4: None, 5: None, 6: None, 7: None,
-    8: [0, 1, 3], 9: [10, 11, 19], 10: [20, 21, 25], 11: [40, 41, 37],
-    12: [0, 1, 3], 13: [0, 1, 3], 14: [12, 10, 19], 15: None,
-    16: [4, 5, 2], 17: [48, 40, 49], 18: [16, 17, 18], 19: [21, 20, 25],
+    0: [0], 1: [10], 2: [20], 3: [40],
+    4: [], 5: [], 6: [], 7: [],
+    8: [0, 1], 9: [10, 11], 10: [20, 21], 11: [40, 41],
+    12: [0], 13: [0], 14: [12], 15: [],
+    16: [4], 17: [48], 18: [16], 19: [21],
 }
 q1_url = (BASE + "/u/" + quote(STUDENT_EMAIL, safe="") + "/query") if STUDENT_EMAIL else (BASE + "/query")
 for index, question in enumerate(probes):
     result, _ = post_json(q1_url, {"question": question, "top_k": 3})
     expected = q1_expected[index]
     assert set(("answer", "sources", "scores", "confidence")) <= result.keys(), (index, result)
-    assert result["sources"] == (expected or []), (index, expected, result)
+    assert result["sources"] == expected, (index, expected, result)
     assert len(result["sources"]) == len(result["scores"])
+    if expected:
+        assert result["answer"] and result["confidence"] > 0.6, (index, result)
+    else:
+        assert result["answer"] is None and result["confidence"] < 0.4, (index, result)
 print(f"Q1 PASS: all {len(probes)} captured probes responded with expected source IDs / abstentions")
 
 # Q4: run all 96 sample cases as the page does: four batches of 24, maximum two
